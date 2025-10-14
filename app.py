@@ -108,4 +108,4 @@ st.markdown('© 2025 Finanzas Inteligentes | Desarrollado con ❤️ en Streamli
 
 
 # Ejecutamos la app
-!streamlit run app.py --server.port 8501
+
