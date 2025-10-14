@@ -18,17 +18,6 @@ Original file is located at
 # 1️⃣ Instalación
 #!pip install streamlit pyngrok pandas plotly
 
-# 2️⃣ Ejecución
-from pyngrok import ngrok
-
-# Creamos túnel público para acceder desde Colab
-public_url = ngrok.connect(8501)
-print("URL pública de la app:", public_url)
-
-# Guardamos la app Streamlit en un archivo temporal
-import streamlit as st
-import pandas as pd
-import plotly.express as px
 
 st.set_page_config(page_title='Finanzas Personales', layout='wide', page_icon='💰')
 
