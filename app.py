@@ -9,8 +9,103 @@ Original file is located at
 
 #!pip install streamlit
 
-# Importamos las librerías
+# ===============================================================
+# 🏦 APP DE FINANZAS PERSONALES - STREAMLIT
+# ===============================================================
+# Ejecuta este bloque en Google Colab paso a paso
+# ===============================================================
+
+# 1️⃣ Instalación
+#!pip install streamlit pyngrok pandas plotly
+
+# 2️⃣ Ejecución
+from pyngrok import ngrok
+
+# Creamos túnel público para acceder desde Colab
+public_url = ngrok.connect(8501)
+print("URL pública de la app:", public_url)
+
+# Guardamos la app Streamlit en un archivo temporal
 import streamlit as st
 import pandas as pd
+import plotly.express as px
 
-st.title ("Mi primera App en Streamlit")
+st.set_page_config(page_title='Finanzas Personales', layout='wide', page_icon='💰')
+
+# ============================
+# Encabezado
+# ============================
+st.title('💰 Panel de Finanzas Personales')
+st.markdown('Analiza tus ingresos, gastos y metas financieras de forma visual e interactiva.')
+
+# ============================
+# Sidebar
+# ============================
+st.sidebar.header('⚙️ Configuración')
+moneda = st.sidebar.selectbox('Moneda base', ['USD', 'COP', 'EUR', 'MXN'])
+st.sidebar.markdown('---')
+
+# ============================
+# Sección de datos
+# ============================
+st.subheader('📊 Ingresos y Gastos')
+
+# Ejemplo de dataset base
+data = pd.DataFrame({
+    'Categoría': ['Salario', 'Freelance', 'Renta', 'Comida', 'Transporte', 'Entretenimiento', 'Ahorro'],
+    'Monto': [2500, 800, 300, -600, -150, -200, 400],
+    'Tipo': ['Ingreso', 'Ingreso', 'Ingreso', 'Gasto', 'Gasto', 'Gasto', 'Ahorro']
+})
+
+st.dataframe(data, use_container_width=True)
+
+# ============================
+# Gráficos
+# ============================
+st.subheader('📈 Distribución general')
+
+fig = px.bar(
+    data,
+    x='Categoría',
+    y='Monto',
+    color='Tipo',
+    color_discrete_map={'Ingreso': 'green', 'Gasto': 'red', 'Ahorro': 'blue'},
+    title='Ingresos vs Gastos por categoría'
+)
+st.plotly_chart(fig, use_container_width=True)
+
+# Pie chart
+st.subheader('🧩 Proporción de gastos e ingresos')
+fig2 = px.pie(data, names='Tipo', values='Monto', title='Distribución de flujo financiero', hole=0.3)
+st.plotly_chart(fig2, use_container_width=True)
+
+# ============================
+# Sección de metas
+# ============================
+st.subheader('🎯 Metas Financieras')
+meta = st.slider('Meta de ahorro mensual', min_value=0, max_value=2000, step=100)
+ahorro_actual = data.loc[data['Tipo'] == 'Ahorro', 'Monto'].sum()
+porcentaje = round((ahorro_actual/meta)*100, 1) if meta > 0 else 0
+
+st.metric(label='Ahorro actual', value=f"{ahorro_actual} {moneda}", delta=f"{porcentaje}% de la meta")
+st.progress(min(porcentaje/100, 1.0))
+
+# ============================
+# Reporte general
+# ============================
+total_ingresos = data.loc[data['Tipo'] == 'Ingreso', 'Monto'].sum()
+total_gastos = -data.loc[data['Tipo'] == 'Gasto', 'Monto'].sum()
+balance = total_ingresos - total_gastos
+
+col1, col2, col3 = st.columns(3)
+col1.metric('Ingresos Totales', f"{total_ingresos} {moneda}")
+col2.metric('Gastos Totales', f"{total_gastos} {moneda}")
+col3.metric('Balance Neto', f"{balance} {moneda}", delta_color="normal")
+
+st.markdown('---')
+st.markdown('© 2025 Finanzas Inteligentes | Desarrollado con ❤️ en Streamlit')
+
+
+
+# Ejecutamos la app
+!streamlit run app.py --server.port 8501
