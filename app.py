@@ -1,3 +1,10 @@
+import subprocess
+import sys
+
+# Instala paquetes si no están presentes
+for package in ["streamlit", "pandas", "plotly"]:
+    subprocess.run([sys.executable, "-m", "pip", "install", package])
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
