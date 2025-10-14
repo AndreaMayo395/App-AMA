@@ -1,6 +1,5 @@
 # ==========================================================
-# 💰 Finanzas Personales - Streamlit App
-# Con instalación automática de dependencias 💻
+# 💰 Finanzas Personales - Streamlit App (sin Plotly)
 # ==========================================================
 import subprocess
 import sys
@@ -8,32 +7,29 @@ import time
 
 import streamlit as st
 
-# ========== INSTALACIÓN AUTOMÁTICA =============
-# Intenta importar, si falla instala los paquetes
+# ========= Instalación automática mínima ==========
 def instalar_paquetes():
     with st.spinner("🔧 Instalando dependencias... por favor espera unos segundos"):
-        for package in ["pandas", "plotly"]:
+        for package in ["pandas", "matplotlib"]:
             subprocess.run([sys.executable, "-m", "pip", "install", package], stdout=subprocess.PIPE)
-        time.sleep(1)  # pequeña pausa visual
+        time.sleep(1)
 
 try:
     import pandas as pd
-    import plotly.express as px
+    import matplotlib.pyplot as plt
 except ModuleNotFoundError:
     instalar_paquetes()
     import pandas as pd
-    import plotly.express as px
+    import matplotlib.pyplot as plt
+
 
 # ============================
-# CONFIGURACIÓN DE PÁGINA
+# CONFIGURACIÓN
 # ============================
 st.set_page_config(page_title="Finanzas Personales 💰", page_icon="💸", layout="wide")
 
-# ============================
-# ENCABEZADO
-# ============================
 st.title("💰 Panel de Finanzas Personales")
-st.caption("Controla tus ingresos, gastos y metas de ahorro de forma visual e interactiva.")
+st.caption("Visualiza tus ingresos, gastos y metas de ahorro fácilmente — sin dependencias pesadas.")
 
 # ============================
 # DATOS DE EJEMPLO
@@ -53,42 +49,38 @@ mostrar_tabla = st.sidebar.checkbox("Mostrar tabla de datos", True)
 st.sidebar.markdown("---")
 
 # ============================
-# TABLA DE DATOS
+# TABLA
 # ============================
 if mostrar_tabla:
     st.subheader("📊 Movimientos Financieros")
     st.dataframe(data, use_container_width=True)
 
 # ============================
-# GRÁFICOS
+# GRÁFICO DE BARRAS
 # ============================
-col1, col2 = st.columns(2)
-
-with col1:
-    st.subheader("📈 Distribución por Categoría")
-    fig1 = px.bar(
-        data,
-        x="Categoría",
-        y="Monto",
-        color="Tipo",
-        color_discrete_map={"Ingreso": "green", "Gasto": "red", "Ahorro": "blue"},
-        title="Ingresos vs Gastos por Categoría"
-    )
-    st.plotly_chart(fig1, use_container_width=True)
-
-with col2:
-    st.subheader("🧩 Proporción de Ingresos y Gastos")
-    fig2 = px.pie(
-        data,
-        names="Tipo",
-        values="Monto",
-        title="Distribución del Flujo Financiero",
-        hole=0.4
-    )
-    st.plotly_chart(fig2, use_container_width=True)
+st.subheader("📈 Ingresos y Gastos por Categoría")
+# Crear gráfico con Matplotlib
+fig, ax = plt.subplots()
+colors = data["Tipo"].map({"Ingreso": "green", "Gasto": "red", "Ahorro": "blue"})
+ax.bar(data["Categoría"], data["Monto"], color=colors)
+ax.axhline(0, color="black", linewidth=0.8)
+ax.set_ylabel(f"Monto ({moneda})")
+ax.set_xlabel("Categoría")
+ax.set_title("Ingresos vs Gastos por Categoría")
+st.pyplot(fig)
 
 # ============================
-# METAS DE AHORRO
+# GRÁFICO DE COMPOSICIÓN (pie)
+# ============================
+st.subheader("🧩 Proporción de Tipos de Movimiento")
+tipo_totales = data.groupby("Tipo")["Monto"].sum().abs()
+fig2, ax2 = plt.subplots()
+ax2.pie(tipo_totales, labels=tipo_totales.index, autopct="%1.1f%%", colors=["green", "red", "blue"])
+ax2.set_title("Distribución de Ingresos, Gastos y Ahorro")
+st.pyplot(fig2)
+
+# ============================
+# META DE AHORRO
 # ============================
 st.subheader("🎯 Meta de Ahorro")
 meta = st.slider("Define tu meta de ahorro mensual", 0, 2000, 1000, 100)
@@ -100,7 +92,7 @@ col1.metric("Ahorro actual", f"{ahorro_actual} {moneda}", delta=f"{porcentaje}% 
 col2.progress(min(porcentaje / 100, 1.0))
 
 # ============================
-# REPORTE GENERAL
+# RESUMEN
 # ============================
 total_ingresos = data[data["Tipo"] == "Ingreso"]["Monto"].sum()
 total_gastos = -data[data["Tipo"] == "Gasto"]["Monto"].sum()
@@ -115,4 +107,4 @@ c2.metric("Gastos Totales", f"{total_gastos} {moneda}")
 c3.metric("Balance Neto", f"{balance} {moneda}", delta_color="normal")
 
 st.markdown("---")
-st.caption("© 2025 Finanzas Inteligentes | Desarrollado con ❤️ en Streamlit")
+st.caption("© 2025 Finanzas Inteligentes | Desarrollado con ❤️ sin Plotly 😎")
