@@ -29,9 +29,9 @@ if pagina == "🏠 Inicio":
 
     data = pd.DataFrame({
         "Activo": activos,
-        "Peso": [],           # Porcentaje o proporción del portafolio
-        "Rendimiento": [],    # Rendimiento histórico o proyectado
-        "Riesgo": []          # Volatilidad o riesgo asociado
+        "Peso": [np.nan] * len(activos),
+        "Rendimiento": [np.nan] * len(activos),
+        "Riesgo": [np.nan] * len(activos)
     })
 
     #Este apartado va a ser de para visualizar el desempeño que se tiene, con las medidas más importantes
