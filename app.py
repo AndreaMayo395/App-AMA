@@ -21,22 +21,69 @@ pagina = st.sidebar.radio(
 )
 
 # =============================
-# CONTENIDO DINÁMICO
+# Primera Página
 # =============================
 if pagina == "🏠 Inicio":
-    st.title("💹 Análisis de Portafolio de Inversión")
-    st.markdown("""
-    Bienvenido a la app interactiva de **análisis financiero**.
-    
-    Usa el menú lateral 👈 para navegar entre los módulos:
-    - **📊 Exploración de Datos**: carga y revisa tu dataset.
-    - **📈 Análisis de Portafolio**: calcula rendimientos y correlaciones.
-    - **💵 Rendimiento y Riesgo**: analiza el desempeño de tus activos.
-    - **🧮 Optimización**: encuentra la mejor combinación de pesos.
-    - **📉 Montecarlo**: simula escenarios futuros.
-    """)
+    st.set_page_config(page_title="Dashboard Financiero 💹", layout="wide")
 
-# --- Exploración de Datos ---
+    # =============================
+    # DATOS SIMULADOS
+    # =============================
+    np.random.seed(42)
+    activos = ["Acciones", "Bonos", "Criptomonedas", "ETFs", "Liquidez"]
+    pesos = np.random.dirichlet(np.ones(len(activos)), 1)[0]
+    rendimientos = np.random.normal(0.12, 0.05, len(activos))
+    riesgos = np.random.uniform(0.1, 0.3, len(activos))
+
+    data = pd.DataFrame({
+        "Activo": activos,
+        "Peso": pesos,
+        "Rendimiento": rendimientos,
+        "Riesgo": riesgos
+    })
+    data["Sharpe"] = data["Rendimiento"] / data["Riesgo"]
+
+    # =============================
+    # ENCABEZADO Y KPIs
+    # =============================
+    st.title("💹 Dashboard Financiero Interactivo")
+    st.caption("Visualiza el desempeño general de tu portafolio de inversión")
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Rendimiento Promedio", f"{(data['Rendimiento'].mean()*100):.2f} %")
+    col2.metric("Riesgo Promedio", f"{(data['Riesgo'].mean()*100):.2f} %")
+    col3.metric("Ratio Sharpe Medio", f"{data['Sharpe'].mean():.2f}")
+
+    # =============================
+    # GRÁFICOS
+    # =============================
+    st.subheader("📊 Distribución del Portafolio")
+    st.bar_chart(data.set_index("Activo")["Peso"])
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("📈 Rendimiento por Activo")
+        st.bar_chart(data.set_index("Activo")["Rendimiento"])
+
+    with col2:
+        st.subheader("⚠️ Riesgo por Activo")
+        st.bar_chart(data.set_index("Activo")["Riesgo"])
+
+    # =============================
+    # EVOLUCIÓN SIMULADA
+    # =============================
+    st.subheader("📉 Evolución del Portafolio en el Tiempo (Simulada)")
+    meses = np.arange(1, 25)
+    valores = 1000 * np.cumprod(1 + np.random.normal(0.01, 0.03, len(meses)))
+    st.line_chart(pd.DataFrame({"Valor Portafolio": valores}, index=meses))
+
+
+    st.markdown("---")
+    st.caption("© 2025 Dashboard Financiero - Hecho con Streamlit 💚")
+
+# =============================
+# Segunda Página
+# =============================
 elif pagina == "📊 Exploración de Datos":
     st.title("📊 Exploración de Datos")
     archivo = st.file_uploader("Sube tu archivo CSV:", type=["csv"])
@@ -47,50 +94,54 @@ elif pagina == "📊 Exploración de Datos":
     else:
         st.info("Sube un archivo CSV para comenzar.")
 
-# --- Análisis de Portafolio ---
+# =============================
+# Tercera Página
+# =============================
 elif pagina == "📈 Análisis de Portafolio":
     st.title("📈 Análisis de Portafolio")
-    archivo = st.file_uploader("Sube datos de precios:", type=["csv"])
-    if archivo:
-        df = pd.read_csv(archivo, index_col=0, parse_dates=True)
-        retornos = df.pct_change().dropna()
-        st.line_chart(retornos)
-        st.subheader("📊 Correlación entre activos")
-        st.dataframe(retornos.corr())
-    else:
-        st.info("Sube un archivo CSV para ver los rendimientos.")
 
-# --- Rendimiento y Riesgo ---
+    np.random.seed(1)
+    activos = ["Acciones", "Bonos", "ETFs", "Criptos"]
+    datos = pd.DataFrame(np.random.randn(100, 4)/100, columns=activos)
+    rend_acum = (1 + datos).cumprod()
+
+    st.line_chart(rend_acum)
+    st.subheader("📊 Matriz de Correlación")
+    st.dataframe(rend_acum.pct_change().corr())
+
+# =============================
+# Cuarta Página
+# =============================
 elif pagina == "💵 Rendimiento y Riesgo":
-    st.title("💵 Rendimiento y Riesgo")
-    archivo = st.file_uploader("Sube tus datos:", type=["csv"])
-    if archivo:
-        df = pd.read_csv(archivo, index_col=0)
-        retornos = df.pct_change().dropna()
-        rendimiento = retornos.mean() * 252
-        riesgo = retornos.std() * np.sqrt(252)
-        st.bar_chart(rendimiento)
-        st.bar_chart(riesgo)
-        st.dataframe(pd.DataFrame({"Rendimiento": rendimiento, "Riesgo": riesgo}))
-    else:
-        st.info("Sube un archivo CSV para continuar.")
+    st.title("💵 Riesgo y Rendimiento")
+
+    activos = ["Acciones", "Bonos", "Criptos", "ETFs"]
+    np.random.seed(2)
+    rend = np.random.normal(0.12, 0.04, len(activos))
+    riesgo = np.random.uniform(0.1, 0.25, len(activos))
+    df = pd.DataFrame({"Activo": activos, "Rendimiento": rend, "Riesgo": riesgo})
+    df["Sharpe"] = df["Rendimiento"] / df["Riesgo"]
+
+    st.bar_chart(df.set_index("Activo")[["Rendimiento", "Riesgo"]])
+    st.dataframe(df)
 
 # --- Optimización ---
 elif pagina == "🧮 Optimización":
     st.title("🧮 Optimización de Portafolio")
-    archivo = st.file_uploader("Sube precios históricos:", type=["csv"])
-    if archivo:
-        df = pd.read_csv(archivo, index_col=0)
-        retornos = df.pct_change().dropna()
-        rend = retornos.mean() * 252
-        cov = retornos.cov() * 252
-        n = len(df.columns)
-        pesos = np.random.dirichlet(np.ones(n), 5000)
-        port_rend = pesos.dot(rend)
-        port_riesgo = np.sqrt(np.diag(pesos @ cov @ pesos.T))
-        st.scatter_chart(pd.DataFrame({"Riesgo": port_riesgo, "Rendimiento": port_rend}))
-    else:
-        st.info("Sube un archivo CSV para simular portafolios.")
+
+    np.random.seed(3)
+    n = 4
+    rend = np.random.normal(0.1, 0.05, n)
+    cov = np.random.rand(n, n)
+    cov = (cov + cov.T) / 2 + np.eye(n)*0.05
+
+    N = 3000
+    pesos = np.random.dirichlet(np.ones(n), N)
+    rend_port = pesos.dot(rend)
+    riesgo_port = np.sqrt(np.diag(pesos @ cov @ pesos.T))
+
+    df = pd.DataFrame({"Riesgo": riesgo_port, "Rendimiento": rend_port})
+    st.scatter_chart(df)
 
 # --- Montecarlo ---
 elif pagina == "📉 Simulación Montecarlo":
@@ -103,3 +154,4 @@ elif pagina == "📉 Simulación Montecarlo":
     np.random.seed(42)
     caminos = np.exp(np.cumsum((r - 0.5*sigma**2) + sigma * np.random.randn(años, simulaciones), axis=0))
     st.line_chart(caminos)
+
