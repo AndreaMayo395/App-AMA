@@ -14,144 +14,66 @@ pagina = st.sidebar.radio(
         "🏠 Inicio",
         "📊 Exploración de Datos",
         "📈 Análisis de Portafolio",
-        "💵 Rendimiento y Riesgo",
-        "🧮 Optimización",
-        "📉 Simulación Montecarlo"
+        "💵 Perfil de Riesgo",
+        "🧮 Ajustar la estrategia de Inversión"
     )
 )
 
-# =============================
-# Primera Página
-# =============================
+
 if pagina == "🏠 Inicio":
     st.set_page_config(page_title="Dashboard Financiero 💹", layout="wide")
 
-    # =============================
-    # DATOS SIMULADOS
-    # =============================
-    np.random.seed(42)
-    activos = ["Acciones", "Bonos", "Criptomonedas", "ETFs", "Liquidez"]
-    pesos = np.random.dirichlet(np.ones(len(activos)), 1)[0]
-    rendimientos = np.random.normal(0.12, 0.05, len(activos))
-    riesgos = np.random.uniform(0.1, 0.3, len(activos))
+
+    # Estructura inicial — luego se reemplazará con datos de criptomonedas, es un bosquejo de las gráfica para hacer
+    activos = ["Activo 1", "Activo 2", "Activo 3", "Activo 4", "Activo 5"]
 
     data = pd.DataFrame({
         "Activo": activos,
-        "Peso": pesos,
-        "Rendimiento": rendimientos,
-        "Riesgo": riesgos
+        "Peso": [],           # Porcentaje o proporción del portafolio
+        "Rendimiento": [],    # Rendimiento histórico o proyectado
+        "Riesgo": []          # Volatilidad o riesgo asociado
     })
-    data["Sharpe"] = data["Rendimiento"] / data["Riesgo"]
 
-    # =============================
-    # ENCABEZADO Y KPIs
-    # =============================
-    st.title("💹 Dashboard Financiero Interactivo")
+    #Este apartado va a ser de para visualizar el desempeño que se tiene, con las medidas más importantes
+    st.title("Dashboard Financiero")
     st.caption("Visualiza el desempeño general de tu portafolio de inversión")
 
     col1, col2, col3 = st.columns(3)
-    col1.metric("Rendimiento Promedio", f"{(data['Rendimiento'].mean()*100):.2f} %")
-    col2.metric("Riesgo Promedio", f"{(data['Riesgo'].mean()*100):.2f} %")
-    col3.metric("Ratio Sharpe Medio", f"{data['Sharpe'].mean():.2f}")
+    col1.metric("Rendimiento Promedio", "-- %")
+    col2.metric("Riesgo Promedio", "-- %")
+    col3.metric("Ratio Sharpe Medio", "-- %")
 
-    # =============================
-    # GRÁFICOS
-    # =============================
+    #Algunos de los gráficos a realizar para el portafolio, para que el usuario pueda visualizar distribuciones y rendimientos
     st.subheader("📊 Distribución del Portafolio")
-    st.bar_chart(data.set_index("Activo")["Peso"])
+    st.bar_chart(pd.DataFrame([], columns=["Peso"])) 
 
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("📈 Rendimiento por Activo")
-        st.bar_chart(data.set_index("Activo")["Rendimiento"])
+        st.bar_chart(pd.DataFrame([], columns=["Rendimiento"]))
 
     with col2:
         st.subheader("⚠️ Riesgo por Activo")
-        st.bar_chart(data.set_index("Activo")["Riesgo"])
+        st.bar_chart(pd.DataFrame([], columns=["Riesgo"]))
 
-    # =============================
-    # EVOLUCIÓN SIMULADA
-    # =============================
-    st.subheader("📉 Evolución del Portafolio en el Tiempo (Simulada)")
-    meses = np.arange(1, 25)
-    valores = 1000 * np.cumprod(1 + np.random.normal(0.01, 0.03, len(meses)))
-    st.line_chart(pd.DataFrame({"Valor Portafolio": valores}, index=meses))
-
+    # COn este apartado se piensa ver cómo evoluviona 
+    st.subheader("📉 Evolución del Portafolio en el Tiempo")
+    st.line_chart(pd.DataFrame([], columns=["Valor Portafolio"]))
 
     st.markdown("---")
-    st.caption("© 2025 Dashboard Financiero - Hecho con Streamlit 💚")
+    st.caption("© 2025 Dashboard Financiero - Hecho por Andrea Mayorga")
 
-# =============================
-# Segunda Página
-# =============================
 elif pagina == "📊 Exploración de Datos":
     st.title("📊 Exploración de Datos")
-    archivo = st.file_uploader("Sube tu archivo CSV:", type=["csv"])
-    if archivo:
-        df = pd.read_csv(archivo)
-        st.dataframe(df.head(), use_container_width=True)
-        st.write(df.describe())
-    else:
-        st.info("Sube un archivo CSV para comenzar.")
 
-# =============================
-# Tercera Página
-# =============================
 elif pagina == "📈 Análisis de Portafolio":
     st.title("📈 Análisis de Portafolio")
+    
+elif pagina == "💵 Perfil de Riesgo":
+    st.title("💵 Perfil de Riesgo")
+    
+elif pagina == "🧮 Estrategia":
+    st.title("🧮 Ajustar la estrategia de Inversión")
 
-    np.random.seed(1)
-    activos = ["Acciones", "Bonos", "ETFs", "Criptos"]
-    datos = pd.DataFrame(np.random.randn(100, 4)/100, columns=activos)
-    rend_acum = (1 + datos).cumprod()
-
-    st.line_chart(rend_acum)
-    st.subheader("📊 Matriz de Correlación")
-    st.dataframe(rend_acum.pct_change().corr())
-
-# =============================
-# Cuarta Página
-# =============================
-elif pagina == "💵 Rendimiento y Riesgo":
-    st.title("💵 Riesgo y Rendimiento")
-
-    activos = ["Acciones", "Bonos", "Criptos", "ETFs"]
-    np.random.seed(2)
-    rend = np.random.normal(0.12, 0.04, len(activos))
-    riesgo = np.random.uniform(0.1, 0.25, len(activos))
-    df = pd.DataFrame({"Activo": activos, "Rendimiento": rend, "Riesgo": riesgo})
-    df["Sharpe"] = df["Rendimiento"] / df["Riesgo"]
-
-    st.bar_chart(df.set_index("Activo")[["Rendimiento", "Riesgo"]])
-    st.dataframe(df)
-
-# --- Optimización ---
-elif pagina == "🧮 Optimización":
-    st.title("🧮 Optimización de Portafolio")
-
-    np.random.seed(3)
-    n = 4
-    rend = np.random.normal(0.1, 0.05, n)
-    cov = np.random.rand(n, n)
-    cov = (cov + cov.T) / 2 + np.eye(n)*0.05
-
-    N = 3000
-    pesos = np.random.dirichlet(np.ones(n), N)
-    rend_port = pesos.dot(rend)
-    riesgo_port = np.sqrt(np.diag(pesos @ cov @ pesos.T))
-
-    df = pd.DataFrame({"Riesgo": riesgo_port, "Rendimiento": rend_port})
-    st.scatter_chart(df)
-
-# --- Montecarlo ---
-elif pagina == "📉 Simulación Montecarlo":
-    st.title("📉 Simulación Montecarlo")
-    r = st.number_input("Rendimiento esperado (%)", value=10.0) / 100
-    sigma = st.number_input("Volatilidad (%)", value=15.0) / 100
-    años = st.slider("Años", 1, 20, 10)
-    simulaciones = 300
-    st.subheader("🔮 Proyección de escenarios")
-    np.random.seed(42)
-    caminos = np.exp(np.cumsum((r - 0.5*sigma**2) + sigma * np.random.randn(años, simulaciones), axis=0))
-    st.line_chart(caminos)
+    
 
