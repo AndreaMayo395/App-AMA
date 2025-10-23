@@ -177,6 +177,9 @@ if pagina == "🏠 Inicio":
     st.markdown("---")
     st.caption("© 2025 Dashboard Financiero - Hecho por Andrea Mayorga")
 
+
+
+
 elif pagina == "📊 Exploración de Datos":
     st.title("📊 Exploración de Datos")
 
@@ -200,11 +203,9 @@ elif pagina == "📊 Exploración de Datos":
             st.write(f"### Velas BTC ({rule_label})")
             st.dataframe(btc_ohlcv.tail(20), use_container_width=True)
 
-            # Gráfico
             col_to_plot = price_to_plot if price_to_plot in btc_ohlcv.columns else "Close"
             st.line_chart(btc_ohlcv[[col_to_plot]].dropna(), height=280, use_container_width=True)
 
-            # Stats + descarga
             with st.expander("Estadísticas rápidas (BTC)"):
                 quick_stats(btc_ohlcv, price_col="Close")
             df_download_button(btc_ohlcv, f"btc_ohlcv_{rule}.csv", "📥 Descargar velas BTC (CSV)")
@@ -215,43 +216,38 @@ elif pagina == "📊 Exploración de Datos":
 
     st.markdown("---")
 
-    # -------------------- 2) ACCIONES (AMZN / ORCL) DESDE STOOQ -----------------
-    st.subheader("2) Acciones (AMZN / ORCL) desde Stooq (sin yfinance)")
-    st.caption("Fuente EOD pública. Filtra por fechas si lo necesitas.")
+    # -------------------- 2) ACCIONES (AMZN / ORCL) DESDE YAHOO (requests) -----
+    st.subheader("2) Acciones (AMZN / ORCL) desde Yahoo (sin yfinance)")
+    st.caption("Descarga directa vía API pública v8 chart. Filtra por fechas.")
 
-    c1, c2 = st.columns(2)
+    c1, c2, c3 = st.columns([1,1,1])
     with c1:
-        start_date = st.date_input("Desde", pd.to_datetime("2018-01-01").date(), key="stooq_start")
+        start_date = st.date_input("Desde", pd.to_datetime("2018-01-01").date(), key="yh_start")
     with c2:
-        end_date = st.date_input("Hasta", pd.Timestamp.today().date(), key="stooq_end")
+        end_date = st.date_input("Hasta", pd.Timestamp.today().date(), key="yh_end")
+    with c3:
+        interval = st.selectbox("Intervalo", ["1d","1wk","1mo"], index=0)
 
-    tickers_map = {"AMZN": "amzn.us", "ORCL": "orcl.us"}
-    for name, code in tickers_map.items():
-        st.write(f"### {name}")
+    for tk in ["AMZN", "ORCL"]:
+        st.write(f"### {tk}")
         try:
-            df_stq = fetch_stooq_daily(code)
-            # Filtro por fechas
-            mask = (df_stq.index.date >= start_date) & (df_stq.index.date <= end_date)
-            df_f = df_stq.loc[mask].copy()
-            if df_f.empty:
-                st.warning("Sin datos en el rango elegido.")
-                continue
+            df_yh = fetch_yahoo_ohlcv(tk, start_date, end_date, interval=interval)
+            st.dataframe(df_yh.tail(20), use_container_width=True)
 
-            st.dataframe(df_f.tail(20), use_container_width=True)
-            st.line_chart(df_f[["Close"]], height=260, use_container_width=True)
+            price_col = "Adj Close" if "Adj Close" in df_yh.columns and df_yh["Adj Close"].notna().any() else "Close"
+            st.line_chart(df_yh[[price_col]].dropna(), height=260, use_container_width=True)
 
-            with st.expander(f"Estadísticas rápidas ({name})"):
-                quick_stats(df_f, "Close")
+            with st.expander(f"Estadísticas rápidas ({tk})"):
+                quick_stats(df_yh, price_col)
 
-            df_download_button(df_f, f"{name}_stooq_{start_date}_{end_date}.csv",
-                               f"📥 Descargar {name} (CSV)")
+            df_download_button(df_yh, f"{tk}_yahoo_{start_date}_{end_date}_{interval}.csv",
+                               f"📥 Descargar {tk} (CSV)")
         except Exception as e:
-            st.error(f"No pude traer {name} desde Stooq: {e}")
+            st.error(f"No pude traer {tk} desde Yahoo: {e}")
 
     st.markdown("---")
-    st.info("Notas: Stooq entrega datos diarios EOD. Para BTC partimos de tus **trades** y agregamos a velas "
-            "(OHLCV + VWAP). Para portafolios, usa Close/VWAP para retornos y combina con AMZN/ORCL.")
-
+    st.info("Notas: Yahoo v8 chart permite obtener OHLCV y Adj Close sin yfinance. "
+            "Para portafolios, usa **Adj Close** si está disponible; si no, **Close**.")
 
 
 elif pagina == "📈 Análisis de Portafolio":
