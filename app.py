@@ -1,31 +1,36 @@
-import streamlit as st
-import sys
-import subprocess  # <- ¡este faltaba!
+import streamlit as st, sys, subprocess, importlib
 
-def ensure_pkg(pkg: str, spec: str | None = None) -> bool:
-    """Intenta importar; si falla, instala con pip y vuelve a importar."""
+def _pip(*args):
+    cmd = [sys.executable, "-m", "pip", *args]
+    return subprocess.call(cmd)  # 0 = ok
+
+def ensure_yfinance() -> bool:
     try:
-        __import__(pkg)
+        importlib.import_module("yfinance")
         return True
     except Exception:
         pass
-    try:
-        with st.spinner(f"Instalando {pkg}..."):
-            cmd = [sys.executable, "-m", "pip", "install", (spec or pkg), "--quiet"]
-            subprocess.check_call(cmd)
-        __import__(pkg)  # re-import tras instalar
-        st.toast(f"{pkg} instalado ✅", icon="✅")
-        return True
-    except Exception as e:
-        st.error(f"No pude instalar {pkg} automáticamente: {e}")
-        return False
+    with st.spinner("Intentando instalar yfinance..."):
+        # 1) preparar herramientas y deps que suelen fallar en Cloud
+        _pip("install", "-U", "pip", "setuptools", "wheel", "--quiet")
+        _pip("install", "numpy>=1.26", "pandas>=2.2", "lxml>=5.3", "beautifulsoup4>=4.12",
+             "multitasking>=0.0.11", "frozendict>=2.3", "appdirs>=1.4.4", "requests>=2.31", "--quiet")
+        # 2) probar versiones de yfinance
+        for ver in ["0.2.43", "0.2.41", "0.2.33"]:
+            if _pip("install", f"yfinance=={ver}", "--quiet") == 0:
+                try:
+                    importlib.import_module("yfinance")
+                    st.toast(f"yfinance {ver} instalado ✅", icon="✅")
+                    return True
+                except Exception:
+                    continue
+    st.warning("No se pudo instalar yfinance; usaré Stooq como alternativa.")
+    return False
 
-# yfinance on-demand
-YF_AVAILABLE = ensure_pkg("yfinance", "yfinance>=0.2.40")
+YF_AVAILABLE = ensure_yfinance()
 if YF_AVAILABLE:
     import yfinance as yf
-else:
-    yf = None
+
 
 
 
