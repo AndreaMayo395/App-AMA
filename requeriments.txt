@@ -1,4 +1,12 @@
 streamlit==1.38.0
-yfinance==0.2.43
+yfinance>=0.2.40
 pandas>=2.2
 numpy>=1.26
+requests>=2.31
+lxml>=5.3
+beautifulsoup4>=4.12
+multitasking>=0.0.11
+frozendict>=2.3
+appdirs>=1.4.4
+pytz>=2024.1
+
