@@ -167,7 +167,7 @@ elif pagina == "📊 Exploración de Datos":
     st.title("📊 Exploración de Datos (CSV locales)")
 
     # -------------------- 1) BITCOIN DESDE TU CSV ------------------------------
-    st.subheader("1) Bitcoin desde CSV (detecta formato automáticamente)")
+    st.subheader("1) Bitcoin desde CSV")
     btc_file = st.file_uploader("Sube tu CSV de BTC (klines/trades/EOD)", type=["csv"], key="btc_csv")
     price_to_plot = st.radio("Precio a graficar (BTC)", ["Close","VWAP"], horizontal=True, index=0)
 
@@ -189,7 +189,7 @@ elif pagina == "📊 Exploración de Datos":
     st.markdown("---")
 
     # -------------------- 2) AMZN / ORCL DESDE TUS CSVs ------------------------
-    st.subheader("2) Acciones desde CSV (Yahoo Finance recomendado)")
+    st.subheader("2) Acciones desde CSV")
     c1, c2 = st.columns(2)
     amzn_file = c1.file_uploader("Sube AMZN (CSV)", type=["csv"], key="amzn_csv")
     orcl_file = c2.file_uploader("Sube ORCL (CSV)", type=["csv"], key="orcl_csv")
