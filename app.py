@@ -1,41 +1,97 @@
 # ───────────────────────────────────────────────────────────────────────────────
-# PESTAÑA: 📊 Exploración de Datos  (BTC desde CSV; AMZN/ORCL vía Stooq robusto)
-# Reqs: pip install streamlit pandas numpy requests
+# PESTAÑA: 📊 Exploración de Datos  (SOLO CSVs locales del usuario)
+# Reqs: pip install streamlit pandas numpy
 # ───────────────────────────────────────────────────────────────────────────────
 import streamlit as st
 import pandas as pd
 import numpy as np
-import requests
-import io
-from datetime import date
 
 # =========================== HELPERS / CACHES ==================================
 @st.cache_data
-def load_binance_trades_csv(file_or_path):
-    """Lee CSV de trades con: id, price, qty, base_qty, time (ms), is_buyer_maker."""
-    df = pd.read_csv(file_or_path)
-    df = df.rename(columns={c: c.lower() for c in df.columns})
-    if not {"price", "qty", "time"}.issubset(df.columns):
-        raise ValueError("Se requieren columnas al menos: price, qty, time")
-    df["price"] = pd.to_numeric(df["price"], errors="coerce")
-    df["qty"]   = pd.to_numeric(df["qty"], errors="coerce")
-    if "base_qty" in df.columns:
-        df["base_qty"] = pd.to_numeric(df["base_qty"], errors="coerce")
-    else:
-        df["base_qty"] = df["price"] * df["qty"]
-    df["time"] = pd.to_datetime(df["time"], unit="ms", errors="coerce").dt.tz_localize(None)
-    df = df.dropna(subset=["time","price","qty"]).sort_values("time").set_index("time")
-    df = df.rename(columns={"id":"trade_id","is_buyer_maker":"isBuyerMaker"})
+def load_yahoo_csv(file_or_buffer) -> pd.DataFrame:
+    """
+    Carga un CSV de Yahoo Finance (AMZN/ORCL) con columnas:
+    Date, Open, High, Low, Close, Adj Close, Volume
+    Devuelve DataFrame indexado por Date (datetime), ordenado ascendente.
+    """
+    df = pd.read_csv(file_or_buffer)
+    # Normalizar nombres por si vienen capitalizaciones raras
+    df.columns = [c.strip().title() for c in df.columns]
+    # Filtrar filas “Dividend” / “Stock Split” si vinieran en otros formatos
+    if "Open" not in df.columns and "Adj Close" not in df.columns and "Close" not in df.columns:
+        raise ValueError("El CSV no parece de Yahoo (faltan columnas de precio).")
+    # Convertir fecha
+    if "Date" not in df.columns:
+        raise ValueError("El CSV debe tener columna 'Date'.")
+    df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+    df = df.dropna(subset=["Date"]).sort_values("Date").set_index("Date")
+
+    # Convertir numéricas
+    for c in ["Open","High","Low","Close","Adj Close","Volume"]:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+    # Eliminar filas vacías de mercado cerrado, etc.
+    df = df.dropna(subset=[c for c in ["Close","Adj Close"] if c in df.columns], how="all")
     return df
 
-def trades_to_ohlcv(trades_df, rule="1D"):
-    """Agrega trades → OHLCV + VWAP por 1T/1H/1D."""
-    ohlc = trades_df["price"].resample(rule).agg(["first","max","min","last"])
-    ohlc.columns = ["Open","High","Low","Close"]
-    volume = trades_df["qty"].resample(rule).sum().rename("Volume")
-    vwap = (trades_df["price"]*trades_df["qty"]).resample(rule).sum() / trades_df["qty"].resample(rule).sum()
-    vwap = vwap.rename("VWAP")
-    return pd.concat([ohlc, volume, vwap], axis=1).dropna(how="all")
+@st.cache_data
+def load_btc_csv(file_or_buffer) -> pd.DataFrame:
+    """
+    Carga BTC desde:
+    - CSV de trades (Binance/aggTrades): columnas como time, price, qty, base_qty...
+    - CSV de klines (Binance): open_time, open, high, low, close, volume ...
+    - CSV EOD (CryptoDataDownload / CoinGecko): Date + Close (u OHLC)
+    Devuelve SIEMPRE un DataFrame OHLCV con índice datetime ascendente.
+    """
+    df = pd.read_csv(file_or_buffer)
+    cols_lower = {c: c.lower().strip() for c in df.columns}
+    df.rename(columns=cols_lower, inplace=True)
+
+    # 1) Formato KLINES (Binance)
+    if "open_time" in df.columns and "close" in df.columns:
+        # Toma open_time (ms) como índice
+        ts = pd.to_datetime(df["open_time"], unit="ms", errors="coerce").dt.tz_localize(None)
+        out = pd.DataFrame({
+            "Open": pd.to_numeric(df.get("open"), errors="coerce"),
+            "High": pd.to_numeric(df.get("high"), errors="coerce"),
+            "Low": pd.to_numeric(df.get("low"), errors="coerce"),
+            "Close": pd.to_numeric(df.get("close"), errors="coerce"),
+            "Volume": pd.to_numeric(df.get("volume"), errors="coerce"),
+        }, index=ts)
+        out = out.dropna(subset=["Close"]).sort_index()
+        return out
+
+    # 2) Formato TRADES (price/qty/time en ms) → agregamos a 1D
+    if {"price","qty","time"}.issubset(df.columns):
+        df["time"] = pd.to_datetime(df["time"], unit="ms", errors="coerce").dt.tz_localize(None)
+        df["price"] = pd.to_numeric(df["price"], errors="coerce")
+        df["qty"]   = pd.to_numeric(df["qty"], errors="coerce")
+        df = df.dropna(subset=["time","price","qty"]).sort_values("time").set_index("time")
+        # Resample diario a OHLCV + VWAP
+        ohlc = df["price"].resample("1D").agg(["first","max","min","last"])
+        ohlc.columns = ["Open","High","Low","Close"]
+        vol = df["qty"].resample("1D").sum().rename("Volume")
+        vwap = (df["price"]*df["qty"]).resample("1D").sum() / df["qty"].resample("1D").sum()
+        out = pd.concat([ohlc, vol, vwap.rename("VWAP")], axis=1).dropna(how="all")
+        return out
+
+    # 3) Formato EOD genérico (CryptoDataDownload / CoinGecko)
+    # Buscamos columnas de fecha y cierre
+    cand_date = next((c for c in df.columns if c in ["date","timestamp","time"]), None)
+    cand_close = next((c for c in df.columns if c in ["close","adj close","price","last"]), None)
+    if cand_date and cand_close:
+        ts = pd.to_datetime(df[cand_date], errors="coerce")
+        close = pd.to_numeric(df[cand_close], errors="coerce")
+        open_  = pd.to_numeric(df.get("open"), errors="coerce")
+        high   = pd.to_numeric(df.get("high"), errors="coerce")
+        low    = pd.to_numeric(df.get("low"), errors="coerce")
+        vol    = pd.to_numeric(df.get("volume"), errors="coerce")
+        out = pd.DataFrame({"Open":open_,"High":high,"Low":low,"Close":close,"Volume":vol}, index=ts)
+        out.index = pd.to_datetime(out.index).tz_localize(None)
+        out = out.dropna(subset=["Close"]).sort_index()
+        return out
+
+    raise ValueError("No reconozco el formato del CSV de BTC (esperaba klines, trades o EOD con Date/Close).")
 
 def quick_stats(df: pd.DataFrame, price_col="Close"):
     ret = df[price_col].pct_change().dropna()
@@ -50,152 +106,58 @@ def df_download_button(df, filename: str, label: str = "📥 Descargar CSV"):
     csv = df.to_csv(index=True).encode("utf-8")
     st.download_button(label, data=csv, file_name=filename, mime="text/csv")
 
-# ---------------- Stooq robusto (sin API key) ---------------------------------
-_STOOQ_ENDPOINTS = [
-    "https://stooq.com/q/d/l/?s={code}&i=d",
-    "https://stooq.pl/q/d/l/?s={code}&i=d",
-    "http://stooq.com/q/d/l/?s={code}&i=d",   # fallback http
-    "http://stooq.pl/q/d/l/?s={code}&i=d",
-]
-_STOOQ_HEADERS = {"User-Agent": "Mozilla/5.0 (StreamlitApp; +https://streamlit.io)"}
-
-@st.cache_data(show_spinner=False)
-def fetch_stooq_daily_robust(ticker_code: str) -> pd.DataFrame:
-    """
-    Intenta varios mirrors/HTTPs con headers. Devuelve DataFrame con
-    Date index y columnas: Open, High, Low, Close, Volume.
-    """
-    errs = []
-    for tpl in _STOOQ_ENDPOINTS:
-        url = tpl.format(code=ticker_code.lower())
-        try:
-            r = requests.get(url, headers=_STOOQ_HEADERS, timeout=20)
-            r.raise_for_status()
-            txt = r.text.strip()
-            # Stooq devuelve CSV con cabecera "Date,Open,High,Low,Close,Volume"
-            if not txt or txt.startswith("<!DOCTYPE") or "Error 404" in txt:
-                errs.append(f"HTML/ vacío en {url}")
-                continue
-            df = pd.read_csv(io.StringIO(txt))
-            # Normalizar columnas (por si vienen capitalizadas distinto)
-            df.rename(columns=str.title, inplace=True)  # Date, Open, High, Low, Close, Volume
-            if "Date" not in df.columns:
-                errs.append(f"Sin columna Date en {url}")
-                continue
-            df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
-            df = df.dropna(subset=["Date"]).sort_values("Date").set_index("Date")
-            # Asegurar tipos numéricos
-            for c in ["Open","High","Low","Close","Volume"]:
-                if c in df.columns:
-                    df[c] = pd.to_numeric(df[c], errors="coerce")
-            df = df.dropna(how="all")
-            if df.empty:
-                errs.append(f"DataFrame vacío en {url}")
-                continue
-            return df
-        except Exception as e:
-            errs.append(f"{url} → {e}")
-            continue
-    raise RuntimeError("Stooq no respondió en ninguno de los mirrors. Detalles: " + " | ".join(errs))
-
-# =========================== NAV / RUTEO (de ejemplo) ==========================
-st.sidebar.title("🧭 Navegación")
-pagina = st.sidebar.radio(
-    "Selecciona un módulo:",
-    (
-        "🏠 Inicio",
-        "📊 Exploración de Datos",
-        "📈 Análisis de Portafolio",
-        "💵 Perfil de Riesgo",
-        "🧮 Ajustar la estrategia de Inversión"
-    )
-)
-
 # ============================ PÁGINA / UI ======================================
-if pagina == "📊 Exploración de Datos":
-    st.title("📊 Exploración de Datos")
+elif pagina == "📊 Exploración de Datos":
+    st.title("📊 Exploración de Datos (CSV locales)")
 
-    # -------------------- 1) BITCOIN DESDE CSV (TRADES → VELAS) ----------------
-    st.subheader("1) Bitcoin desde CSV (trades → velas)")
-    st.caption("Sube tu CSV con columnas: id, price, qty, base_qty, time (ms), is_buyer_maker.")
-    btc_trades_file = st.file_uploader("Sube CSV de trades (BTC/USDT, etc.)", type=["csv"], key="btc_trades")
-    rule_label = st.selectbox("Intervalo de agregación", ["1T (1 minuto)","1H (1 hora)","1D (1 día)"], index=2)
-    rule = {"1T (1 minuto)":"1T","1H (1 hora)":"1H","1D (1 día)":"1D"}[rule_label]
-    price_to_plot = st.radio("Precio a graficar", ["Close","VWAP"], horizontal=True, index=0)
+    # -------------------- 1) BITCOIN DESDE TU CSV ------------------------------
+    st.subheader("1) Bitcoin desde CSV (detecta formato automáticamente)")
+    btc_file = st.file_uploader("Sube tu CSV de BTC (klines/trades/EOD)", type=["csv"], key="btc_csv")
+    price_to_plot = st.radio("Precio a graficar (BTC)", ["Close","VWAP"], horizontal=True, index=0)
 
-    if btc_trades_file is not None:
+    if btc_file is not None:
         try:
-            trades_df = load_binance_trades_csv(btc_trades_file)
-            st.success(f"Trades cargados: {len(trades_df):,} · {trades_df.index.min()} → {trades_df.index.max()}")
-            with st.expander("Muestra de trades (primeras 20 filas)"):
-                st.dataframe(trades_df.head(20), use_container_width=True)
-
-            btc_ohlcv = trades_to_ohlcv(trades_df, rule=rule)
-            st.write(f"### Velas BTC ({rule_label})")
-            st.dataframe(btc_ohlcv.tail(20), use_container_width=True)
-            st.line_chart(btc_ohlcv[[price_to_plot]].dropna(), height=280, use_container_width=True)
-
+            btc_df = load_btc_csv(btc_file)
+            st.success(f"BTC cargado · {btc_df.index.min()} → {btc_df.index.max()} · {len(btc_df):,} filas")
+            st.dataframe(btc_df.tail(20), use_container_width=True)
+            col = price_to_plot if price_to_plot in btc_df.columns else "Close"
+            st.line_chart(btc_df[[col]].dropna(), height=280, use_container_width=True)
             with st.expander("Estadísticas rápidas (BTC)"):
-                quick_stats(btc_ohlcv, price_col="Close")
-            df_download_button(btc_ohlcv, f"btc_ohlcv_{rule}.csv", "📥 Descargar velas BTC (CSV)")
+                quick_stats(btc_df, price_col="Close")
+            df_download_button(btc_df, "BTC_clean_OHLCV.csv", "📥 Descargar BTC (limpio)")
         except Exception as e:
-            st.error(f"Error con el CSV de BTC: {e}")
+            st.error(f"Error cargando BTC: {e}")
     else:
-        st.info("Sube el CSV para ver velas de BTC.")
+        st.info("Sube tu CSV de BTC para visualizarlo.")
 
     st.markdown("---")
 
-    # -------------------- 2) ACCIONES (AMZN / ORCL) SIN KEYS -------------------
-    st.subheader("2) Acciones (AMZN / ORCL) sin API key (Stooq)")
-    st.caption("Si la descarga web falla en tu Cloud, sube un CSV propio como fallback.")
-
+    # -------------------- 2) AMZN / ORCL DESDE TUS CSVs ------------------------
+    st.subheader("2) Acciones desde CSV (Yahoo Finance recomendado)")
     c1, c2 = st.columns(2)
-    with c1:
-        start_date = st.date_input("Desde", pd.to_datetime("2018-01-01").date(), key="stq_start")
-    with c2:
-        end_date = st.date_input("Hasta", pd.Timestamp.today().date(), key="stq_end")
+    amzn_file = c1.file_uploader("Sube AMZN (CSV)", type=["csv"], key="amzn_csv")
+    orcl_file = c2.file_uploader("Sube ORCL (CSV)", type=["csv"], key="orcl_csv")
 
-    # Fallback: permitir subir CSV locales de AMZN/ORCL
-    col_up1, col_up2 = st.columns(2)
-    amzn_csv = col_up1.file_uploader("Opcional: subir AMZN (CSV)", type=["csv"], key="amzn_csv")
-    orcl_csv = col_up2.file_uploader("Opcional: subir ORCL (CSV)", type=["csv"], key="orcl_csv")
-
-    tickers = [("AMZN", "amzn.us", amzn_csv), ("ORCL", "orcl.us", orcl_csv)]
-    for name, code, upfile in tickers:
+    def render_equity_block(name: str, fileobj):
         st.write(f"### {name}")
+        if fileobj is None:
+            st.info("Sube el CSV para visualizar.")
+            return
         try:
-            if upfile is not None:
-                # usar CSV subido
-                df = pd.read_csv(upfile)
-                df.rename(columns=str.title, inplace=True)
-                if "Date" not in df.columns:
-                    raise ValueError("El CSV debe tener columna 'Date'.")
-                df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
-                df = df.dropna(subset=["Date"]).sort_values("Date").set_index("Date")
-            else:
-                # traer de Stooq con mirrors/headers
-                df = fetch_stooq_daily_robust(code)
-
-            # filtro por fechas
-            mask = (df.index.date >= start_date) & (df.index.date <= end_date)
-            df_f = df.loc[mask].copy()
-            if df_f.empty:
-                st.warning("Sin datos en el rango elegido.")
-                continue
-
-            st.dataframe(df_f.tail(20), use_container_width=True)
-            st.line_chart(df_f[["Close"]].dropna(), height=260, use_container_width=True)
-
+            df = load_yahoo_csv(fileobj)
+            st.success(f"{name} cargado · {df.index.min().date()} → {df.index.max().date()} · {len(df):,} filas")
+            st.dataframe(df.tail(20), use_container_width=True)
+            price_col = "Adj Close" if "Adj Close" in df.columns and df["Adj Close"].notna().any() else "Close"
+            st.line_chart(df[[price_col]].dropna(), height=260, use_container_width=True)
             with st.expander(f"Estadísticas rápidas ({name})"):
-                quick_stats(df_f, "Close")
-
-            df_download_button(df_f, f"{name}_stooq_{start_date}_{end_date}.csv", f"📥 Descargar {name} (CSV)")
+                quick_stats(df, price_col)
+            df_download_button(df, f"{name}_clean.csv", f"📥 Descargar {name} (limpio)")
         except Exception as e:
-            st.error(f"No pude traer {name}: {e}")
+            st.error(f"Error con {name}: {e}")
+
+    render_equity_block("AMZN", amzn_file)
+    render_equity_block("ORCL", orcl_file)
 
     st.markdown("---")
-    st.info(
-        "Notas: Stooq entrega OHLCV diarios EOD; si el servicio está bloqueado en tu entorno, "
-        "sube tus CSV de AMZN/ORCL con columnas Date, Open, High, Low, Close, Volume. "
-        "Para portafolios, usa **Close** (o **Adj Close** si tu CSV lo trae) y para BTC usa Close/VWAP."
-    )
+    st.info("Consejo: para retornos de acciones usa **Adj Close** (si está); para BTC, **Close** o **VWAP**.\n"
+            "Con estos CSV ya puedes pasar a la pestaña de portafolio sin depender de ninguna API.")
