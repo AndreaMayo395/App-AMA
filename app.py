@@ -220,5 +220,4 @@ elif pagina == "💵 Perfil de Riesgo":
 elif pagina == "🧮 Estrategia":
     st.title("🧮 Ajustar la estrategia de Inversión")
 
-    """
 
