@@ -1,5 +1,5 @@
 # ───────────────────────────────────────────────────────────────────────────────
-# PESTAÑA: 📊 Exploración de Datos  (BTC desde CSV; AMZN/ORCL desde Alpha Vantage)
+# PESTAÑA: 📊 Exploración de Datos  (BTC desde CSV; AMZN/ORCL vía Stooq robusto)
 # Reqs: pip install streamlit pandas numpy requests
 # ───────────────────────────────────────────────────────────────────────────────
 import streamlit as st
@@ -7,7 +7,6 @@ import pandas as pd
 import numpy as np
 import requests
 import io
-import time
 from datetime import date
 
 # =========================== HELPERS / CACHES ==================================
@@ -51,93 +50,55 @@ def df_download_button(df, filename: str, label: str = "📥 Descargar CSV"):
     csv = df.to_csv(index=True).encode("utf-8")
     st.download_button(label, data=csv, file_name=filename, mime="text/csv")
 
-# ---------------- Alpha Vantage (acciones) ROBUSTO ----------------
-ALPHA_BASE = "https://www.alphavantage.co/query"
+# ---------------- Stooq robusto (sin API key) ---------------------------------
+_STOOQ_ENDPOINTS = [
+    "https://stooq.com/q/d/l/?s={code}&i=d",
+    "https://stooq.pl/q/d/l/?s={code}&i=d",
+    "http://stooq.com/q/d/l/?s={code}&i=d",   # fallback http
+    "http://stooq.pl/q/d/l/?s={code}&i=d",
+]
+_STOOQ_HEADERS = {"User-Agent": "Mozilla/5.0 (StreamlitApp; +https://streamlit.io)"}
 
 @st.cache_data(show_spinner=False)
-def alpha_daily_adjusted_any(ticker: str, api_key: str, outputsize: str = "compact") -> pd.DataFrame:
+def fetch_stooq_daily_robust(ticker_code: str) -> pd.DataFrame:
     """
-    TIME_SERIES_DAILY_ADJUSTED: intenta CSV y si no, JSON. Devuelve DataFrame
-    con Date index y columnas: Open, High, Low, Close, Adj Close, Volume (si existen).
+    Intenta varios mirrors/HTTPs con headers. Devuelve DataFrame con
+    Date index y columnas: Open, High, Low, Close, Volume.
     """
-    # ---- 1) Intento CSV
-    params_csv = {
-        "function": "TIME_SERIES_DAILY_ADJUSTED",
-        "symbol": ticker,
-        "apikey": api_key,
-        "datatype": "csv",
-        "outputsize": outputsize,  # 'compact' (≈100 días) o 'full'
-    }
-    r = requests.get(ALPHA_BASE, params=params_csv, timeout=25)
-    r.raise_for_status()
-    txt = r.text.lstrip()
-
-    if not txt.startswith("{"):  # parece CSV válido
+    errs = []
+    for tpl in _STOOQ_ENDPOINTS:
+        url = tpl.format(code=ticker_code.lower())
         try:
+            r = requests.get(url, headers=_STOOQ_HEADERS, timeout=20)
+            r.raise_for_status()
+            txt = r.text.strip()
+            # Stooq devuelve CSV con cabecera "Date,Open,High,Low,Close,Volume"
+            if not txt or txt.startswith("<!DOCTYPE") or "Error 404" in txt:
+                errs.append(f"HTML/ vacío en {url}")
+                continue
             df = pd.read_csv(io.StringIO(txt))
-            df.rename(columns={
-                "timestamp":"Date","open":"Open","high":"High","low":"Low",
-                "close":"Close","adjusted_close":"Adj Close","volume":"Volume"
-            }, inplace=True)
+            # Normalizar columnas (por si vienen capitalizadas distinto)
+            df.rename(columns=str.title, inplace=True)  # Date, Open, High, Low, Close, Volume
+            if "Date" not in df.columns:
+                errs.append(f"Sin columna Date en {url}")
+                continue
             df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
             df = df.dropna(subset=["Date"]).sort_values("Date").set_index("Date")
+            # Asegurar tipos numéricos
+            for c in ["Open","High","Low","Close","Volume"]:
+                if c in df.columns:
+                    df[c] = pd.to_numeric(df[c], errors="coerce")
+            df = df.dropna(how="all")
+            if df.empty:
+                errs.append(f"DataFrame vacío en {url}")
+                continue
             return df
-        except Exception:
-            pass  # caemos a JSON
-
-    # ---- 2) Fallback JSON (cuando Alpha manda mensaje de límite/nota/err)
-    params_json = {
-        "function": "TIME_SERIES_DAILY_ADJUSTED",
-        "symbol": ticker,
-        "apikey": api_key,
-        "outputsize": outputsize,
-    }
-    rj = requests.get(ALPHA_BASE, params=params_json, timeout=25)
-    rj.raise_for_status()
-    js = rj.json()
-
-    # Mensajes típicos
-    msg = js.get("Note") or js.get("Information") or js.get("Error Message")
-    if msg:
-        raise RuntimeError(msg)
-
-    series = js.get("Time Series (Daily)") or js.get("Time Series Daily")
-    if not series:
-        raise RuntimeError("Respuesta JSON no contiene series diarias")
-
-    dfj = (
-        pd.DataFrame.from_dict(series, orient="index")
-          .rename(columns={
-              "1. open":"Open","2. high":"High","3. low":"Low","4. close":"Close",
-              "5. adjusted close":"Adj Close","6. volume":"Volume"
-          })
-    )
-    dfj.index = pd.to_datetime(dfj.index, errors="coerce")
-    for c in ["Open","High","Low","Close","Adj Close","Volume"]:
-        if c in dfj.columns:
-            dfj[c] = pd.to_numeric(dfj[c], errors="coerce")
-    dfj = dfj.sort_index().dropna(how="all")
-    dfj.index.name = "Date"
-    return dfj
-
-def alpha_fetch_window(ticker: str, api_key: str, start: date, end: date, outputsize="compact") -> pd.DataFrame:
-    """
-    Trae datos y recorta por fechas. Hace 2 reintentos con pequeño backoff
-    para respetar ~5 req/min del plan free.
-    """
-    delays = [0, 12]  # segundos
-    last = None
-    for d in delays:
-        if d: time.sleep(d)
-        try:
-            df = alpha_daily_adjusted_any(ticker, api_key, outputsize=outputsize)
-            mask = (df.index.date >= start) & (df.index.date <= end)
-            return df.loc[mask]
         except Exception as e:
-            last = e
-    raise last if last else RuntimeError("Fallo desconocido Alpha Vantage")
+            errs.append(f"{url} → {e}")
+            continue
+    raise RuntimeError("Stooq no respondió en ninguno de los mirrors. Detalles: " + " | ".join(errs))
 
-# =========================== NAV / RUTEO (ejemplo) ==============================
+# =========================== NAV / RUTEO (de ejemplo) ==========================
 st.sidebar.title("🧭 Navegación")
 pagina = st.sidebar.radio(
     "Selecciona un módulo:",
@@ -184,46 +145,57 @@ if pagina == "📊 Exploración de Datos":
 
     st.markdown("---")
 
-    # -------------------- 2) ACCIONES (AMZN / ORCL) CON ALPHA VANTAGE ----------
-    st.subheader("2) Acciones (AMZN / ORCL) desde Alpha Vantage (sin yfinance)")
-    st.caption("Usa tu API key gratuita. En Cloud, guárdala en Secrets como ALPHAVANTAGE_API_KEY.")
+    # -------------------- 2) ACCIONES (AMZN / ORCL) SIN KEYS -------------------
+    st.subheader("2) Acciones (AMZN / ORCL) sin API key (Stooq)")
+    st.caption("Si la descarga web falla en tu Cloud, sube un CSV propio como fallback.")
 
-    # API key: desde secrets o input rápido
-    api_key = st.secrets.get("ALPHAVANTAGE_API_KEY", "")
-    if not api_key:
-        api_key = st.text_input("API Key de Alpha Vantage", type="password")
-
-    c1, c2, c3 = st.columns(3)
+    c1, c2 = st.columns(2)
     with c1:
-        start_date = st.date_input("Desde", pd.to_datetime("2018-01-01").date(), key="av_start")
+        start_date = st.date_input("Desde", pd.to_datetime("2018-01-01").date(), key="stq_start")
     with c2:
-        end_date = st.date_input("Hasta", pd.Timestamp.today().date(), key="av_end")
-    with c3:
-        outputsize = st.selectbox("Tamaño", ["compact (≈100 días)","full (todo)"], index=0)
-        outputsize = "compact" if outputsize.startswith("compact") else "full"
+        end_date = st.date_input("Hasta", pd.Timestamp.today().date(), key="stq_end")
 
-    for tk in ["AMZN", "ORCL"]:
-        st.write(f"### {tk}")
-        if not api_key:
-            st.warning("Ingresa tu API key para descargar datos.")
-            continue
+    # Fallback: permitir subir CSV locales de AMZN/ORCL
+    col_up1, col_up2 = st.columns(2)
+    amzn_csv = col_up1.file_uploader("Opcional: subir AMZN (CSV)", type=["csv"], key="amzn_csv")
+    orcl_csv = col_up2.file_uploader("Opcional: subir ORCL (CSV)", type=["csv"], key="orcl_csv")
+
+    tickers = [("AMZN", "amzn.us", amzn_csv), ("ORCL", "orcl.us", orcl_csv)]
+    for name, code, upfile in tickers:
+        st.write(f"### {name}")
         try:
-            df_eq = alpha_fetch_window(tk, api_key, start_date, end_date, outputsize=outputsize)
-            if df_eq.empty:
-                st.warning("Sin datos en el rango indicado.")
+            if upfile is not None:
+                # usar CSV subido
+                df = pd.read_csv(upfile)
+                df.rename(columns=str.title, inplace=True)
+                if "Date" not in df.columns:
+                    raise ValueError("El CSV debe tener columna 'Date'.")
+                df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+                df = df.dropna(subset=["Date"]).sort_values("Date").set_index("Date")
+            else:
+                # traer de Stooq con mirrors/headers
+                df = fetch_stooq_daily_robust(code)
+
+            # filtro por fechas
+            mask = (df.index.date >= start_date) & (df.index.date <= end_date)
+            df_f = df.loc[mask].copy()
+            if df_f.empty:
+                st.warning("Sin datos en el rango elegido.")
                 continue
-            st.dataframe(df_eq.tail(20), use_container_width=True)
-            price_col = "Adj Close" if "Adj Close" in df_eq.columns and df_eq["Adj Close"].notna().any() else "Close"
-            st.line_chart(df_eq[[price_col]].dropna(), height=260, use_container_width=True)
 
-            with st.expander(f"Estadísticas rápidas ({tk})"):
-                quick_stats(df_eq, price_col)
+            st.dataframe(df_f.tail(20), use_container_width=True)
+            st.line_chart(df_f[["Close"]].dropna(), height=260, use_container_width=True)
 
-            df_download_button(df_eq, f"{tk}_alpha_{start_date}_{end_date}.csv",
-                               f"📥 Descargar {tk} (CSV)")
+            with st.expander(f"Estadísticas rápidas ({name})"):
+                quick_stats(df_f, "Close")
+
+            df_download_button(df_f, f"{name}_stooq_{start_date}_{end_date}.csv", f"📥 Descargar {name} (CSV)")
         except Exception as e:
-            st.error(f"No pude traer {tk} desde Alpha Vantage: {e}")
+            st.error(f"No pude traer {name}: {e}")
 
     st.markdown("---")
-    st.info("Tip: para portafolios usa **Adj Close** (acciones) y **Close/VWAP** (BTC) para retornos. "
-            "Alpha Vantage free permite ~5 req/min; con AMZN y ORCL estás dentro del límite.")
+    st.info(
+        "Notas: Stooq entrega OHLCV diarios EOD; si el servicio está bloqueado en tu entorno, "
+        "sube tus CSV de AMZN/ORCL con columnas Date, Open, High, Low, Close, Volume. "
+        "Para portafolios, usa **Close** (o **Adj Close** si tu CSV lo trae) y para BTC usa Close/VWAP."
+    )
