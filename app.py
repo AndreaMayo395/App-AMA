@@ -52,13 +52,20 @@ def fetch_stooq_daily(ticker_us: str) -> pd.DataFrame:
     Ejemplos: 'amzn.us', 'orcl.us'.
     """
     url = f"https://stooq.com/q/d/l/?s={ticker_us.lower()}&i=d"
-    df = pd.read_csv(url)
-    if df.empty:
-        raise ValueError(f"Stooq sin datos para {ticker_us}")
-    df.rename(columns=str.title, inplace=True)  # Date, Open, High, Low, Close, Volume
-    df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
-    df = df.dropna(subset=["Date"]).sort_values("Date").set_index("Date")
-    return df
+    try:
+        df = pd.read_csv(url)
+        st.write(f"### Preview de {ticker_us} (Stooq)")
+        st.dataframe(df.head(10))  # Muestra las primeras 10 filas del CSV descargado
+
+        if df.empty:
+            raise ValueError(f"Stooq sin datos para {ticker_us}")
+        df.rename(columns=str.title, inplace=True)  # Date, Open, High, Low, Close, Volume
+        df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+        df = df.dropna(subset=["Date"]).sort_values("Date").set_index("Date")
+        return df
+    except Exception as e:
+        st.error(f"No pude traer {ticker_us} desde Stooq: {e}")
+        return pd.DataFrame()  # Devuelve un DataFrame vacío si falla la descarga
 
 def quick_stats(df: pd.DataFrame, price_col="Close"):
     ret = df[price_col].pct_change().dropna()
