@@ -102,7 +102,7 @@ def alpha_fetch_window(ticker: str, api_key: str, start: date, end: date, output
     raise last_err if last_err else RuntimeError("Fallo desconocido Alpha Vantage")
 
 # ============================ PÁGINA / UI ======================================
-elif pagina == "📊 Exploración de Datos":
+if pagina == "📊 Exploración de Datos":
     st.title("📊 Exploración de Datos")
 
     # -------------------- 1) BITCOIN DESDE CSV (TRADES → VELAS) ----------------
