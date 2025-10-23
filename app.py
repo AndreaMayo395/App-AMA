@@ -1,8 +1,80 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import yfinance as yf
 
 st.set_page_config(page_title="Análisis de Portafolio 💹", page_icon="💸", layout="wide")
+
+
+
+# ── HELPERS ────────────────────────────────────────────────────────────────────
+@st.cache_data
+def load_binance_trades_csv(file_or_path):
+    """
+    Lee CSV de trades con columnas: id, price, qty, base_qty, time, is_buyer_maker
+    Convierte 'time' (ms) a datetime y devuelve df indexado por tiempo.
+    """
+    df = pd.read_csv(file_or_path)
+    cols_lower = {c: c.lower() for c in df.columns}
+    df = df.rename(columns=cols_lower)
+
+    needed = {"price","qty","time"}
+    if not needed.issubset(set(df.columns)):
+        raise ValueError("CSV de trades debe tener al menos: price, qty, time")
+
+    # convertir tipos
+    df["price"] = pd.to_numeric(df["price"], errors="coerce")
+    df["qty"] = pd.to_numeric(df["qty"], errors="coerce")
+    # 'base_qty' (a veces se llama quoteQty). Si no existe, la calculamos si puedes (price*qty):
+    if "base_qty" in df.columns:
+        df["base_qty"] = pd.to_numeric(df["base_qty"], errors="coerce")
+    else:
+        df["base_qty"] = df["price"] * df["qty"]
+
+    # time en milisegundos → datetime (sin zona)
+    df["time"] = pd.to_datetime(df["time"], unit="ms", errors="coerce").dt.tz_localize(None)
+    df = df.dropna(subset=["time","price","qty"]).sort_values("time").set_index("time")
+
+    # renombrar opcionalmente para consistencia
+    df = df.rename(columns={
+        "id": "trade_id",
+        "is_buyer_maker": "isBuyerMaker"
+    })
+    return df
+
+def trades_to_ohlcv(trades_df, rule="1D"):
+    """
+    Agrega trades a velas OHLCV por regla de resample (e.g., '1T','1H','1D').
+    Volume = suma de qty (base). Añade también VWAP.
+    """
+    ohlc = trades_df["price"].resample(rule).agg(["first","max","min","last"])
+    ohlc.columns = ["Open","High","Low","Close"]
+    volume = trades_df["qty"].resample(rule).sum().rename("Volume")
+    vwap = (trades_df["price"]*trades_df["qty"]).resample(rule).sum() / trades_df["qty"].resample(rule).sum()
+    vwap = vwap.rename("VWAP")
+    out = pd.concat([ohlc, volume, vwap], axis=1).dropna(how="all")
+    return out
+
+@st.cache_data
+def fetch_yf(ticker, start=None, end=None, interval="1d"):
+    data = yf.download(ticker, start=start, end=end, interval=interval, auto_adjust=False, progress=False)
+    if data.empty:
+        raise ValueError(f"Sin datos para {ticker}")
+    return data
+
+def render_summary(df, price_col="Adj Close"):
+    col = price_col if price_col in df.columns else "Close"
+    if col not in df.columns:  # para BTC OHLCV derivado
+        col = "Close" if "Close" in df.columns else df.columns[0]
+    ret = df[col].pct_change().dropna()
+    st.metric("Observaciones", len(df))
+    st.write(pd.DataFrame({
+        "Retorno medio (diario)": [ret.mean()],
+        "Volatilidad (diaria)": [ret.std()],
+        "Retorno acumulado": [(df[col].iloc[-1]/df[col].iloc[0]-1) if len(df)>1 else np.nan]
+    }).T.rename(columns={0:""}))
+
+
 
 # =============================
 # MENÚ LATERAL
@@ -65,6 +137,61 @@ if pagina == "🏠 Inicio":
 
 elif pagina == "📊 Exploración de Datos":
     st.title("📊 Exploración de Datos")
+
+    # ===================== 1) BITCOIN DESDE CSV DE TRADES ======================
+    st.subheader("Bitcoin desde CSV (trades → velas)")
+    st.caption("Sube tu CSV con columnas como: id, price, qty, base_qty, time, is_buyer_maker (tiempo en ms).")
+
+    btc_trades_file = st.file_uploader("Sube CSV de trades (BTC/USDT, etc.)", type=["csv"], key="btc_trades")
+    rule = st.selectbox("Intervalo de agregación", ["1T (1 minuto)","1H (1 hora)","1D (1 día)"], index=2)
+    rule_map = {"1T (1 minuto)":"1T", "1H (1 hora)":"1H", "1D (1 día)":"1D"}
+
+    if btc_trades_file is not None:
+        try:
+            trades_df = load_binance_trades_csv(btc_trades_file)
+            st.success(f"Trades cargados: {len(trades_df):,} filas · rango: {trades_df.index.min().date()} → {trades_df.index.max().date()}")
+            with st.expander("Ver muestra de trades (primeras 20 filas)"):
+                st.dataframe(trades_df.head(20))
+
+            btc_ohlcv = trades_to_ohlcv(trades_df, rule=rule_map[rule])
+            st.write(f"### Velas BTC ({rule})")
+            st.dataframe(btc_ohlcv.tail(20))
+            st.line_chart(btc_ohlcv[["Close"]].dropna(), height=280)
+            with st.expander("Estadísticas rápidas (BTC)"):
+                render_summary(btc_ohlcv, price_col="Close")
+        except Exception as e:
+            st.error(f"Error con el CSV de BTC: {e}")
+    else:
+        st.info("Sube el CSV para ver precio y velas de BTC.")
+
+    st.markdown("---")
+
+    # ===================== 2) ACCIONES (AMZN / ORCL) ===========================
+    st.subheader("Acciones con yfinance (AMZN / ORCL)")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        start_date = st.date_input("Desde", pd.to_datetime("2018-01-01").date())
+    with col2:
+        end_date = st.date_input("Hasta", pd.Timestamp.today().date())
+    with col3:
+        interval = st.selectbox("Intervalo", ["1d","1wk","1mo"], index=0)
+
+    for tk in ["AMZN", "ORCL"]:
+        st.write(f"### {tk}")
+        try:
+            df = fetch_yf(tk, start=pd.to_datetime(start_date), end=pd.to_datetime(end_date), interval=interval)
+            st.dataframe(df.tail(20))
+            price_col = "Adj Close" if "Adj Close" in df.columns else "Close"
+            st.line_chart(df[[price_col]].dropna(), height=260)
+            with st.expander(f"Estadísticas rápidas ({tk})"):
+                render_summary(df, price_col)
+        except Exception as e:
+            st.error(f"No se pudo descargar {tk}: {e}")
+
+    st.markdown("---")
+    st.info("Nota: en trades de Binance, `qty` es volumen en el activo base; `base_qty` suele ser el valor en la moneda cotizada. Las velas usan OHLC del precio y `Volume = Σ qty`.")
+
+
 
 elif pagina == "📈 Análisis de Portafolio":
     st.title("📈 Análisis de Portafolio")
