@@ -1,20 +1,32 @@
-import importlib, sys, pkgutil, streamlit as st
+import streamlit as st
+import sys
+import subprocess  # <- ¡este faltaba!
 
-# intenta importar; si falta, instala en caliente
-try:
-    import yfinance as yf
-    YF_AVAILABLE = True
-except Exception:
-    YF_AVAILABLE = False
+def ensure_pkg(pkg: str, spec: str | None = None) -> bool:
+    """Intenta importar; si falla, instala con pip y vuelve a importar."""
     try:
-        with st.spinner("Instalando yfinance..."):
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "yfinance>=0.2.40", "--quiet"])
-        import yfinance as yf  # reintento
-        YF_AVAILABLE = True
-        st.toast("yfinance instalado correctamente", icon="✅")
+        __import__(pkg)
+        return True
+    except Exception:
+        pass
+    try:
+        with st.spinner(f"Instalando {pkg}..."):
+            cmd = [sys.executable, "-m", "pip", "install", (spec or pkg), "--quiet"]
+            subprocess.check_call(cmd)
+        __import__(pkg)  # re-import tras instalar
+        st.toast(f"{pkg} instalado ✅", icon="✅")
+        return True
     except Exception as e:
-        st.error(f"No pude instalar yfinance automáticamente: {e}")
-        yf = None
+        st.error(f"No pude instalar {pkg} automáticamente: {e}")
+        return False
+
+# yfinance on-demand
+YF_AVAILABLE = ensure_pkg("yfinance", "yfinance>=0.2.40")
+if YF_AVAILABLE:
+    import yfinance as yf
+else:
+    yf = None
+
 
 
 
