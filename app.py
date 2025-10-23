@@ -1,3 +1,21 @@
+import importlib, sys, pkgutil, streamlit as st
+
+def _check_pkg(name):
+    spec = importlib.util.find_spec(name)
+    return spec is not None
+
+st.sidebar.subheader("🔧 Diagnóstico")
+st.sidebar.write("Python:", sys.version)
+st.sidebar.write("yfinance instalado:", _check_pkg("yfinance"))
+if _check_pkg("yfinance"):
+    import yfinance as yf
+    st.sidebar.write("yfinance versión:", getattr(yf, "__version__", "desconocida"))
+else:
+    st.sidebar.error("No se encontró yfinance. Revisa requirements.txt en la **raíz** y el log de build.")
+
+
+
+"""
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -10,10 +28,7 @@ st.set_page_config(page_title="Análisis de Portafolio 💹", page_icon="💸", 
 # ── HELPERS ────────────────────────────────────────────────────────────────────
 @st.cache_data
 def load_binance_trades_csv(file_or_path):
-    """
-    Lee CSV de trades con columnas: id, price, qty, base_qty, time, is_buyer_maker
-    Convierte 'time' (ms) a datetime y devuelve df indexado por tiempo.
-    """
+   
     df = pd.read_csv(file_or_path)
     cols_lower = {c: c.lower() for c in df.columns}
     df = df.rename(columns=cols_lower)
@@ -43,10 +58,7 @@ def load_binance_trades_csv(file_or_path):
     return df
 
 def trades_to_ohlcv(trades_df, rule="1D"):
-    """
-    Agrega trades a velas OHLCV por regla de resample (e.g., '1T','1H','1D').
-    Volume = suma de qty (base). Añade también VWAP.
-    """
+    
     ohlc = trades_df["price"].resample(rule).agg(["first","max","min","last"])
     ohlc.columns = ["Open","High","Low","Close"]
     volume = trades_df["qty"].resample(rule).sum().rename("Volume")
@@ -202,5 +214,5 @@ elif pagina == "💵 Perfil de Riesgo":
 elif pagina == "🧮 Estrategia":
     st.title("🧮 Ajustar la estrategia de Inversión")
 
-    
+    """
 
