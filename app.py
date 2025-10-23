@@ -101,6 +101,19 @@ def alpha_fetch_window(ticker: str, api_key: str, start: date, end: date, output
             last_err = e
     raise last_err if last_err else RuntimeError("Fallo desconocido Alpha Vantage")
 
+st.sidebar.title("🧭 Navegación")
+pagina = st.sidebar.radio(
+    "Selecciona un módulo:",
+    (
+        "🏠 Inicio",
+        "📊 Exploración de Datos",
+        "📈 Análisis de Portafolio",
+        "💵 Perfil de Riesgo",
+        "🧮 Ajustar la estrategia de Inversión"
+    )
+)
+
+
 # ============================ PÁGINA / UI ======================================
 if pagina == "📊 Exploración de Datos":
     st.title("📊 Exploración de Datos")
