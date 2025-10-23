@@ -1,7 +1,8 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-
+import requests
+from datetime import datetime, date
 
 st.set_page_config(page_title="Análisis de Portafolio 💹", page_icon="💸", layout="wide")
 
@@ -35,7 +36,7 @@ def load_binance_trades_csv(file_or_path):
 def trades_to_ohlcv(trades_df, rule="1D"):
     """
     Agrega trades → OHLCV por intervalo (1T/1H/1D) y calcula VWAP.
-    Volume = Σ qty (activo base). Devuelve DataFrame con Open,High,Low,Close,Volume,VWAP.
+    Volume = Σ qty (activo base).
     """
     ohlc = trades_df["price"].resample(rule).agg(["first","max","min","last"])
     ohlc.columns = ["Open","High","Low","Close"]
@@ -46,33 +47,68 @@ def trades_to_ohlcv(trades_df, rule="1D"):
     return out
 
 @st.cache_data
-def fetch_stooq_daily(ticker_us: str) -> pd.DataFrame:
+def fetch_yahoo_ohlcv(ticker: str, start: date, end: date, interval: str = "1d") -> pd.DataFrame:
     """
-    Descarga OHLCV diario desde Stooq (sin API key).
-    Ejemplos: 'amzn.us', 'orcl.us'.
+    Descarga OHLCV (y Adj Close) desde Yahoo v8 chart sin yfinance.
+    interval: '1d','1wk','1mo'
     """
-    url = f"https://stooq.com/q/d/l/?s={ticker_us.lower()}&i=d"
-    try:
-        df = pd.read_csv(url)
-        st.write(f"### Preview de {ticker_us} (Stooq)")
-        st.dataframe(df.head(10))  # Muestra las primeras 10 filas del CSV descargado
+    # period1 = inicio 00:00:00, period2 = fin 23:59:59
+    p1 = int(pd.Timestamp(start).tz_localize("UTC").timestamp())
+    p2 = int(pd.Timestamp(end) .tz_localize("UTC").timestamp())
 
-        if df.empty:
-            raise ValueError(f"Stooq sin datos para {ticker_us}")
-        df.rename(columns=str.title, inplace=True)  # Date, Open, High, Low, Close, Volume
-        df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
-        df = df.dropna(subset=["Date"]).sort_values("Date").set_index("Date")
-        return df
-    except Exception as e:
-        st.error(f"No pude traer {ticker_us} desde Stooq: {e}")
-        return pd.DataFrame()  # Devuelve un DataFrame vacío si falla la descarga
+    url = "https://query1.finance.yahoo.com/v8/finance/chart/{}".format(ticker)
+    params = {
+        "period1": p1,
+        "period2": p2,
+        "interval": interval,
+        "events": "div,split",
+        "includePrePost": "false"
+    }
+    r = requests.get(url, params=params, timeout=20)
+    r.raise_for_status()
+    js = r.json()
+
+    # Navegar el JSON
+    res = js.get("chart", {}).get("result", [])
+    if not res:
+        raise ValueError(f"Yahoo no devolvió datos para {ticker}.")
+    res = res[0]
+    timestamps = res.get("timestamp", [])
+    if not timestamps:
+        raise ValueError(f"Sin timestamps para {ticker}.")
+
+    q = res["indicators"]["quote"][0]
+    opens  = q.get("open", [])
+    highs  = q.get("high", [])
+    lows   = q.get("low", [])
+    closes = q.get("close", [])
+    vols   = q.get("volume", [])
+    # adj close (si está)
+    adj = res["indicators"].get("adjclose", [{}])[0].get("adjclose", [None]*len(timestamps))
+
+    idx = pd.to_datetime(pd.Series(timestamps), unit="s", utc=True).dt.tz_localize(None)
+    df = pd.DataFrame({
+        "Open": opens,
+        "High": highs,
+        "Low": lows,
+        "Close": closes,
+        "Adj Close": adj,
+        "Volume": vols
+    }, index=idx).dropna(how="all")
+
+    # Ordenar y filtrar por fechas exactas por si Yahoo trae márgenes
+    df = df.sort_index()
+    df = df.loc[(df.index.date >= start) & (df.index.date <= end)]
+    if df.empty:
+        raise ValueError(f"Yahoo devolvió DataFrame vacío para {ticker} en el rango seleccionado.")
+    return df
 
 def quick_stats(df: pd.DataFrame, price_col="Close"):
     ret = df[price_col].pct_change().dropna()
     st.write(pd.DataFrame({
         "Observaciones": [len(df)],
-        "Retorno medio (diario)": [ret.mean()],
-        "Volatilidad (diaria)": [ret.std()],
+        "Retorno medio (periodo)": [ret.mean()],
+        "Volatilidad (periodo)": [ret.std()],
         "Retorno acumulado": [(df[price_col].iloc[-1]/df[price_col].iloc[0]-1) if len(df)>1 else np.nan]
     }).T.rename(columns={0:""}))
 
